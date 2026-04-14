@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.money.codex.data.AppPreferences
+import com.money.codex.data.AuthSessionStore
 import com.money.codex.data.BudgetData
 import com.money.codex.data.Category
 import com.money.codex.data.CategoryPayload
@@ -24,6 +26,7 @@ import com.money.codex.data.currentYearValue
 import com.money.codex.data.todayString
 import com.money.codex.ui.theme.AppThemePreset
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.YearMonth
 
 enum class AppTab(val title: String) {
@@ -47,9 +50,32 @@ enum class MessageTone {
     Info
 }
 
+enum class BudgetAlertPalette(
+    val key: String,
+    val label: String,
+    val normalHex: Long,
+    val warningHex: Long,
+    val dangerHex: Long
+) {
+    Sunset("sunset", "晚霞橙红", 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444),
+    Ocean("ocean", "海盐蓝调", 0xFF14B8A6, 0xFF3B82F6, 0xFF1D4ED8),
+    Rose("rose", "玫瑰霓虹", 0xFF34D399, 0xFFEC4899, 0xFFBE123C),
+    Plum("plum", "梅子霓紫", 0xFF10B981, 0xFF8B5CF6, 0xFF6D28D9);
+
+    companion object {
+        fun fromKey(key: String): BudgetAlertPalette =
+            entries.firstOrNull { it.key == key } ?: Sunset
+    }
+}
+
 data class UiMessage(
     val text: String,
     val tone: MessageTone = MessageTone.Info
+)
+
+data class BudgetAlertSettingsUi(
+    val warningPercent: Int = 80,
+    val palette: BudgetAlertPalette = BudgetAlertPalette.Sunset
 )
 
 data class DashboardUi(
@@ -77,6 +103,12 @@ data class RecordFilters(
     val keyword: String = ""
 )
 
+data class CalendarExpenseDay(
+    val date: String,
+    val amount: Double,
+    val count: Int
+)
+
 data class StatisticsUi(
     val stats: MonthlyStats = MonthlyStats(),
     val expenseStats: List<CategoryStat> = emptyList(),
@@ -84,13 +116,15 @@ data class StatisticsUi(
     val trend: TrendData = TrendData(),
     val period: String = "month",
     val month: String = currentMonthString(),
-    val year: Int = currentYearValue()
+    val year: Int = currentYearValue(),
+    val calendarExpenses: List<CalendarExpenseDay> = emptyList()
 )
 
 data class BudgetUi(
     val budget: BudgetData = BudgetData(),
     val dailyAvailable: Double = 0.0,
-    val daysRemaining: Int = 0
+    val daysRemaining: Int = 0,
+    val usagePercent: Double = 0.0
 )
 
 data class AuthUiState(
@@ -178,7 +212,17 @@ class MainViewModel(
     var reminderCapability by mutableStateOf(ReminderCapabilityUi())
         private set
 
+    var rememberPasswordEnabled by mutableStateOf(false)
+        private set
+
+    var budgetAlertSettings by mutableStateOf(BudgetAlertSettingsUi())
+        private set
+
     init {
+        AuthSessionStore.init(application.applicationContext)
+        AppPreferences.init(application.applicationContext)
+        rememberPasswordEnabled = AuthSessionStore.isRememberPasswordEnabled()
+        budgetAlertSettings = AppPreferences.budgetAlertSettings()
         bootstrap()
     }
 
@@ -210,6 +254,11 @@ class MainViewModel(
         currentTab = tab
     }
 
+    fun openQuickAdd() {
+        currentTab = AppTab.Records
+        addRecordDialogVisible = true
+    }
+
     fun showAddRecordDialog(show: Boolean) {
         addRecordDialogVisible = show
     }
@@ -220,6 +269,19 @@ class MainViewModel(
 
     fun setUiStyle(style: AppUiStyle) {
         selectedUiStyle = style
+    }
+
+    fun updateRememberPasswordEnabled(enabled: Boolean) {
+        rememberPasswordEnabled = enabled
+        AuthSessionStore.setRememberPasswordEnabled(enabled)
+    }
+
+    fun updateBudgetAlertSettings(warningPercent: Int, palette: BudgetAlertPalette) {
+        budgetAlertSettings = BudgetAlertSettingsUi(
+            warningPercent = warningPercent.coerceIn(50, 100),
+            palette = palette
+        )
+        AppPreferences.saveBudgetAlertSettings(budgetAlertSettings)
     }
 
     fun loadReminderSettings(context: Context) {
@@ -242,9 +304,9 @@ class MainViewModel(
                 exactAlarmSupported = ReminderScheduler.canScheduleExactAlarms(context)
             )
             toastMessage = if (scheduled) {
-                UiMessage("定时提醒已开启", MessageTone.Success)
+                UiMessage("定时提醒已开启，提醒消息里会附带快捷记账入口", MessageTone.Success)
             } else {
-                UiMessage("系统未授予精确提醒权限，请先完成授权", MessageTone.Error)
+                UiMessage("系统尚未授予精确提醒权限，请先完成授权", MessageTone.Error)
             }
         } else {
             ReminderScheduler.cancelDailyReminder(context)
@@ -262,9 +324,9 @@ class MainViewModel(
                 exactAlarmSupported = ReminderScheduler.canScheduleExactAlarms(context)
             )
             toastMessage = if (scheduled) {
-                UiMessage("提醒时间已更新", MessageTone.Success)
+                UiMessage("提醒时间已更新为 %02d:%02d".format(hour, minute), MessageTone.Success)
             } else {
-                UiMessage("系统未授予精确提醒权限，请先完成授权", MessageTone.Error)
+                UiMessage("系统尚未授予精确提醒权限，请先完成授权", MessageTone.Error)
             }
         }
     }
@@ -311,7 +373,7 @@ class MainViewModel(
         viewModelScope.launch {
             authState = authState.copy(loginSubmitting = true)
             runCatching {
-                repository.login(email, password)
+                repository.login(email, password, rememberPasswordEnabled)
                 repository.fetchCurrentUser()
             }.onSuccess { user ->
                 authState = authState.copy(
@@ -320,7 +382,7 @@ class MainViewModel(
                     authLoading = false,
                     loginSubmitting = false
                 )
-                toastMessage = UiMessage("登录成功", MessageTone.Success)
+                toastMessage = UiMessage("登录成功，账本已同步到当前账号", MessageTone.Success)
                 refreshAll()
             }.onFailure {
                 authState = authState.copy(loginSubmitting = false)
@@ -351,18 +413,7 @@ class MainViewModel(
                 categories = repository.loadCategories()
 
                 val dashboardData = repository.loadDashboard(currentMonth)
-                val percent = if (dashboardData.budget.budget <= 0.0) 0.0
-                else (dashboardData.budget.spent / dashboardData.budget.budget) * 100
-                dashboard = DashboardUi(
-                    stats = dashboardData.stats,
-                    budgetRemaining = dashboardData.budget.remaining,
-                    budgetPercent = percent.coerceIn(0.0, 100.0),
-                    dailyAverageBudget = dashboardData.dailyBudget.dailyAvailable,
-                    dailyAvailable = dashboardData.dailyBudget.dailyAvailable,
-                    daysRemaining = dashboardData.dailyBudget.daysRemaining,
-                    recentRecords = dashboardData.records,
-                    expenseStats = dashboardData.categoryStats
-                )
+                dashboard = dashboardFromBundle(dashboardData)
 
                 val recordsData = repository.loadRecords(
                     page = 1,
@@ -375,23 +426,15 @@ class MainViewModel(
                 )
                 records = RecordsUi(recordsData.records, 1, recordsData.total)
 
-                val statisticsData: StatisticsBundle = repository.loadStatistics(
+                val statisticsData = repository.loadStatistics(
                     period = statisticsPeriod,
                     month = statisticsMonth,
                     year = statisticsYear
                 )
-                statistics = StatisticsUi(
-                    statisticsData.stats,
-                    statisticsData.expenseStats,
-                    statisticsData.incomeStats,
-                    statisticsData.trend,
-                    statisticsPeriod,
-                    statisticsMonth,
-                    statisticsYear
-                )
+                statistics = statisticsFromBundle(statisticsData)
 
                 val (budgetData, dailyData) = repository.loadBudget(currentMonth)
-                budget = BudgetUi(budgetData, dailyData.dailyAvailable, dailyData.daysRemaining)
+                budget = budgetUi(budgetData, dailyData.dailyAvailable, dailyData.daysRemaining)
             }.onFailure { handleFailure(it) }
             isLoading = false
         }
@@ -401,18 +444,7 @@ class MainViewModel(
         if (!authState.isAuthenticated) return
         viewModelScope.launch {
             runCatching {
-                val data = repository.loadDashboard(currentMonth)
-                val percent = if (data.budget.budget <= 0.0) 0.0 else (data.budget.spent / data.budget.budget) * 100
-                dashboard = DashboardUi(
-                    stats = data.stats,
-                    budgetRemaining = data.budget.remaining,
-                    budgetPercent = percent.coerceIn(0.0, 100.0),
-                    dailyAverageBudget = data.dailyBudget.dailyAvailable,
-                    dailyAvailable = data.dailyBudget.dailyAvailable,
-                    daysRemaining = data.dailyBudget.daysRemaining,
-                    recentRecords = data.records,
-                    expenseStats = data.categoryStats
-                )
+                dashboard = dashboardFromBundle(repository.loadDashboard(currentMonth))
             }.onFailure { handleFailure(it) }
         }
     }
@@ -458,20 +490,12 @@ class MainViewModel(
         if (!authState.isAuthenticated) return
         viewModelScope.launch {
             runCatching {
-                val data: StatisticsBundle = repository.loadStatistics(
+                val data = repository.loadStatistics(
                     period = statisticsPeriod,
                     month = statisticsMonth,
                     year = statisticsYear
                 )
-                statistics = StatisticsUi(
-                    data.stats,
-                    data.expenseStats,
-                    data.incomeStats,
-                    data.trend,
-                    statisticsPeriod,
-                    statisticsMonth,
-                    statisticsYear
-                )
+                statistics = statisticsFromBundle(data)
             }.onFailure { handleFailure(it) }
         }
     }
@@ -496,7 +520,7 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching {
                 val (budgetData, dailyData) = repository.loadBudget(currentMonth)
-                budget = BudgetUi(budgetData, dailyData.dailyAvailable, dailyData.daysRemaining)
+                budget = budgetUi(budgetData, dailyData.dailyAvailable, dailyData.daysRemaining)
             }.onFailure { handleFailure(it) }
         }
     }
@@ -524,7 +548,9 @@ class MainViewModel(
                     )
                 )
             }.onSuccess {
-                toastMessage = UiMessage("记录已添加到你的账本", MessageTone.Success)
+                val categoryName = categories.firstOrNull { it.id == categoryId }?.name.orEmpty()
+                val detail = buildRecordSuccessMessage(type, amount, categoryName, date, remark)
+                toastMessage = UiMessage(detail, MessageTone.Success)
                 addRecordDialogVisible = false
                 loadDashboard()
                 loadRecords()
@@ -672,6 +698,74 @@ class MainViewModel(
                 .onFailure { handleFailure(it) }
         }
     }
+
+    private fun dashboardFromBundle(data: com.money.codex.data.DashboardBundle): DashboardUi {
+        val percent = if (data.budget.budget <= 0.0) 0.0 else (data.budget.spent / data.budget.budget) * 100
+        return DashboardUi(
+            stats = data.stats,
+            budgetRemaining = data.budget.remaining,
+            budgetPercent = percent.coerceAtLeast(0.0),
+            dailyAverageBudget = data.dailyBudget.dailyAvailable,
+            dailyAvailable = data.dailyBudget.dailyAvailable,
+            daysRemaining = data.dailyBudget.daysRemaining,
+            recentRecords = data.records,
+            expenseStats = data.categoryStats
+        )
+    }
+
+    private fun statisticsFromBundle(data: StatisticsBundle): StatisticsUi {
+        val calendarExpenses = data.calendarRecords
+            .groupBy { it.date }
+            .map { (date, items) ->
+                CalendarExpenseDay(
+                    date = date,
+                    amount = items.sumOf { it.amount },
+                    count = items.size
+                )
+            }
+            .sortedBy { it.date }
+        return StatisticsUi(
+            stats = data.stats,
+            expenseStats = data.expenseStats,
+            incomeStats = data.incomeStats,
+            trend = data.trend,
+            period = statisticsPeriod,
+            month = statisticsMonth,
+            year = statisticsYear,
+            calendarExpenses = calendarExpenses
+        )
+    }
+
+    private fun budgetUi(budgetData: BudgetData, dailyAvailable: Double, daysRemaining: Int): BudgetUi {
+        val percent = if (budgetData.budget <= 0.0) 0.0 else (budgetData.spent / budgetData.budget) * 100
+        return BudgetUi(
+            budget = budgetData,
+            dailyAvailable = dailyAvailable,
+            daysRemaining = daysRemaining,
+            usagePercent = percent.coerceAtLeast(0.0)
+        )
+    }
+
+    private fun buildRecordSuccessMessage(
+        type: String,
+        amount: Double,
+        categoryName: String,
+        date: String,
+        remark: String
+    ): String {
+        val typeText = if (type == "expense") "支出" else "收入"
+        val dateText = if (date == todayString()) "今天" else date
+        val categoryText = if (categoryName.isBlank()) "" else " · $categoryName"
+        val remarkText = remark.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        val budgetHint = if (type == "expense" && dashboard.daysRemaining > 0) {
+            " 当前日均可支配 ${moneyAmount(dashboard.dailyAvailable)}。"
+        } else {
+            ""
+        }
+        return "已记下$dateText$typeText ${moneyAmount(amount)}$categoryText$remarkText。$budgetHint".trim()
+    }
+
+    private fun moneyAmount(value: Double): String = "¥" + String.format("%.2f", value)
 
     private fun handleFailure(throwable: Throwable, fallback: (() -> Unit)? = null) {
         if (throwable is UnauthorizedException) {

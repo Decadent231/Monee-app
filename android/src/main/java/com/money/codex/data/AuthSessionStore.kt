@@ -10,6 +10,7 @@ object AuthSessionStore {
     private const val KEY_NICKNAME = "nickname"
     private const val KEY_REMEMBER_EMAIL = "remember_email"
     private const val KEY_REMEMBER_PASSWORD = "remember_password"
+    private const val KEY_REMEMBER_ENABLED = "remember_password_enabled"
 
     @Volatile
     private var initialized = false
@@ -50,14 +51,19 @@ object AuthSessionStore {
             .apply()
     }
 
-    fun saveRememberedCredentials(email: String, password: String) {
+    fun saveRememberedCredentials(email: String, password: String, enabled: Boolean) {
         if (!initialized) {
             return
         }
-        prefs().edit()
-            .putString(KEY_REMEMBER_EMAIL, email)
-            .putString(KEY_REMEMBER_PASSWORD, password)
-            .apply()
+        if (enabled) {
+            prefs().edit()
+                .putBoolean(KEY_REMEMBER_ENABLED, true)
+                .putString(KEY_REMEMBER_EMAIL, email)
+                .putString(KEY_REMEMBER_PASSWORD, password)
+                .apply()
+        } else {
+            clearRememberedCredentials()
+        }
     }
 
     fun rememberedEmail(): String {
@@ -72,6 +78,37 @@ object AuthSessionStore {
             return ""
         }
         return prefs().getString(KEY_REMEMBER_PASSWORD, "").orEmpty()
+    }
+
+    fun isRememberPasswordEnabled(): Boolean {
+        if (!initialized) {
+            return false
+        }
+        val hasLegacyCredentials = rememberedEmail().isNotBlank() || rememberedPassword().isNotBlank()
+        return prefs().getBoolean(KEY_REMEMBER_ENABLED, hasLegacyCredentials)
+    }
+
+    fun setRememberPasswordEnabled(enabled: Boolean) {
+        if (!initialized) {
+            return
+        }
+        prefs().edit()
+            .putBoolean(KEY_REMEMBER_ENABLED, enabled)
+            .apply()
+        if (!enabled) {
+            clearRememberedCredentials()
+        }
+    }
+
+    fun clearRememberedCredentials() {
+        if (!initialized) {
+            return
+        }
+        prefs().edit()
+            .putBoolean(KEY_REMEMBER_ENABLED, false)
+            .remove(KEY_REMEMBER_EMAIL)
+            .remove(KEY_REMEMBER_PASSWORD)
+            .apply()
     }
 
     fun clearSession() {

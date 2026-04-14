@@ -18,6 +18,7 @@ class MoneyRepository(
 
     init {
         AuthSessionStore.init(context)
+        AppPreferences.init(context)
     }
 
     private fun <T> unwrap(response: ApiResponse<T>): T? {
@@ -68,12 +69,12 @@ class MoneyRepository(
         }
     }
 
-    suspend fun login(email: String, password: String): UserInfo {
+    suspend fun login(email: String, password: String, rememberPassword: Boolean): UserInfo {
         return callApi {
             val data = unwrap(userApi.login(LoginRequest(email, password)))
                 ?: throw IllegalStateException("登录结果为空")
             AuthSessionStore.saveSession(data.token, data.userInfo)
-            AuthSessionStore.saveRememberedCredentials(email.trim(), password)
+            AuthSessionStore.saveRememberedCredentials(email.trim(), password, rememberPassword)
             data.userInfo
         }
     }
@@ -183,7 +184,15 @@ class MoneyRepository(
             val expense = callApi { unwrap(moneyApi.categoryStats(month, "expense")).orEmpty() }
             val income = callApi { unwrap(moneyApi.categoryStats(month, "income")).orEmpty() }
             val trend = callApi { unwrap(moneyApi.trend(month)) ?: TrendData() }
-            StatisticsBundle(stats, expense, income, trend)
+            val yearMonth = runCatching { YearMonth.parse(month) }.getOrElse { YearMonth.now() }
+            val calendarRecords = loadRecords(
+                page = 1,
+                size = 500,
+                startDate = yearMonth.atDay(1).toString(),
+                endDate = yearMonth.atEndOfMonth().toString(),
+                type = "expense"
+            ).records
+            StatisticsBundle(stats, expense, income, trend, calendarRecords)
         }
     }
 
@@ -211,7 +220,8 @@ data class StatisticsBundle(
     val stats: MonthlyStats,
     val expenseStats: List<CategoryStat>,
     val incomeStats: List<CategoryStat>,
-    val trend: TrendData
+    val trend: TrendData,
+    val calendarRecords: List<RecordItem> = emptyList()
 )
 
 fun currentMonthString(): String = YearMonth.now().toString()

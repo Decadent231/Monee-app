@@ -23,6 +23,8 @@ data class ReminderSettings(
 )
 
 object ReminderScheduler {
+    const val ACTION_QUICK_ADD = "com.money.codex.action.QUICK_ADD"
+
     private const val PREF_NAME = "monee_settings"
     private const val KEY_REMINDER_ENABLED = "reminder_enabled"
     private const val KEY_REMINDER_HOUR = "reminder_hour"
@@ -60,7 +62,7 @@ object ReminderScheduler {
             CHANNEL_NAME,
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
-            description = "每天提醒你记录账单"
+            description = "每天提醒你记录账单，并提供快捷记账入口"
         }
         manager.createNotificationChannel(channel)
     }
@@ -127,12 +129,23 @@ object ReminderScheduler {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val quickAddIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_QUICK_ADD
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val quickAddPendingIntent = PendingIntent.getActivity(
+            context,
+            3003,
+            quickAddIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("Monee 记账提醒")
-            .setContentText("到时间了，记得补上今天的账单。")
+            .setContentText("到时间了，顺手补上今天的账单。")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(contentPendingIntent)
+            .addAction(0, "快捷记一笔", quickAddPendingIntent)
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)

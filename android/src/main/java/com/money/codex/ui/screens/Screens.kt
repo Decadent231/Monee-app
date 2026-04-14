@@ -36,6 +36,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
@@ -59,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.money.codex.BudgetUi
+import com.money.codex.BudgetAlertPalette
+import com.money.codex.BudgetAlertSettingsUi
+import com.money.codex.CalendarExpenseDay
 import com.money.codex.DashboardUi
 import com.money.codex.AppUiStyle
 import com.money.codex.AuthUiState
@@ -126,6 +130,14 @@ private val chartPalette = listOf(
 )
 
 fun money(value: Double): String = "¥${moneyFmt.format(value)}"
+
+private fun budgetAlertColor(percent: Double, settings: BudgetAlertSettingsUi): Color {
+    return when {
+        percent >= 100.0 -> Color(settings.palette.dangerHex)
+        percent >= settings.warningPercent -> Color(settings.palette.warningHex)
+        else -> Color(settings.palette.normalHex)
+    }
+}
 
 private data class UiStyleTokens(
     val pagePadding: Int,
@@ -203,9 +215,11 @@ fun DashboardScreen(
     ui: DashboardUi,
     uiStyle: AppUiStyle,
     currentUserName: String,
+    budgetAlertSettings: BudgetAlertSettingsUi,
     onEditRecord: (RecordItem) -> Unit
 ) {
     val s = uiStyleTokens(uiStyle)
+    val progressColor = budgetAlertColor(ui.budgetPercent, budgetAlertSettings)
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -369,7 +383,7 @@ fun DashboardScreen(
                                 .fillMaxWidth()
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(8.dp)),
-                            color = Color(0xFF4FD1C5),
+                            color = progressColor,
                             trackColor = Color.White.copy(alpha = 0.12f)
                         )
                     }
@@ -762,7 +776,116 @@ fun StatisticsScreen(
                 emptyTip = "暂无收支数据"
             )
         }
+        if (ui.period == "month") {
+            item {
+                ExpenseCalendarCard(
+                    month = ui.month,
+                    calendarExpenses = ui.calendarExpenses,
+                    uiStyle = uiStyle
+                )
+            }
+        }
         item { TrendBarChartCard(if (ui.period == "month") "日度收支趋势柱状图" else "年度收支趋势柱状图", ui.trend) }
+    }
+}
+
+@Composable
+private fun ExpenseCalendarCard(
+    month: String,
+    calendarExpenses: List<CalendarExpenseDay>,
+    uiStyle: AppUiStyle
+) {
+    val s = uiStyleTokens(uiStyle)
+    val currentMonth = runCatching { YearMonth.parse(month) }.getOrElse { YearMonth.now() }
+    val expenseMap = calendarExpenses.associateBy { it.date }
+    val maxAmount = calendarExpenses.maxOfOrNull { it.amount } ?: 0.0
+    val firstDate = currentMonth.atDay(1)
+    val leadingSlots = (firstDate.dayOfWeek.value % 7)
+    val totalDays = currentMonth.lengthOfMonth()
+    val weekTitles = listOf("日", "一", "二", "三", "四", "五", "六")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(s.cardRadius.dp),
+        colors = CardDefaults.cardColors(containerColor = s.cardColor),
+        border = s.border
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("消费日历", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("深色块代表当天支出更高，点开统计时可以快速发现高消费日期。", color = TextMuted, fontSize = 12.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                weekTitles.forEach { title ->
+                    Text(
+                        text = title,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val cells = buildList {
+                    repeat(leadingSlots) { add(null) }
+                    repeat(totalDays) { day ->
+                        add(currentMonth.atDay(day + 1))
+                    }
+                }
+                cells.chunked(7).forEach { week ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        repeat(7) { index ->
+                            val date = week.getOrNull(index)
+                            val expense = date?.let { expenseMap[it.toString()] }
+                            val intensity = when {
+                                expense == null || maxAmount <= 0.0 -> 0f
+                                else -> (expense.amount / maxAmount).coerceIn(0.0, 1.0).toFloat()
+                            }
+                            val bg = if (date == null) {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f)
+                            } else {
+                                Brand.copy(alpha = 0.10f + intensity * 0.45f)
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(bg)
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline.copy(alpha = if (expense != null) 0.18f else 0.08f),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = date?.dayOfMonth?.toString().orEmpty(),
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = when {
+                                        expense == null -> ""
+                                        expense.amount >= 1000 -> "¥${expense.amount.toInt()}"
+                                        else -> "¥${moneyFmt.format(expense.amount)}"
+                                    },
+                                    color = if (expense != null) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                    fontSize = 10.sp,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1013,12 +1136,14 @@ fun SettingsScreen(
     selectedTheme: AppThemePreset,
     currentUser: UserInfo?,
     exactAlarmSupported: Boolean,
-    onUiStyleChange: (AppUiStyle) -> Unit,
-    onThemeChange: (AppThemePreset) -> Unit,
-    onSetBudget: (Double) -> Unit,
     reminderEnabled: Boolean,
     reminderHour: Int,
     reminderMinute: Int,
+    budgetAlertSettings: BudgetAlertSettingsUi,
+    onUiStyleChange: (AppUiStyle) -> Unit,
+    onThemeChange: (AppThemePreset) -> Unit,
+    onSetBudget: (Double) -> Unit,
+    onBudgetAlertChange: (Int, BudgetAlertPalette) -> Unit,
     onReminderEnabledChange: (Boolean) -> Unit,
     onReminderTimeChange: (Int, Int) -> Unit,
     onOpenExactAlarmSettings: () -> Unit,
@@ -1028,6 +1153,7 @@ fun SettingsScreen(
     onLogout: () -> Unit
 ) {
     val s = uiStyleTokens(selectedUiStyle)
+    val budgetAccent = budgetAlertColor(ui.usagePercent, budgetAlertSettings)
     var showDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -1110,7 +1236,7 @@ fun SettingsScreen(
         }
         SummaryCard("月度预算", money(ui.budget.budget), Brand, Modifier.fillMaxWidth(), selectedUiStyle)
         SummaryCard("已支出", money(ui.budget.spent), Expense, Modifier.fillMaxWidth(), selectedUiStyle)
-        SummaryCard("预算剩余", money(ui.budget.remaining), Income, Modifier.fillMaxWidth(), selectedUiStyle)
+        SummaryCard("预算剩余", money(ui.budget.remaining), budgetAccent, Modifier.fillMaxWidth(), selectedUiStyle)
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -1121,6 +1247,93 @@ fun SettingsScreen(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("每日可用 ${money(ui.dailyAvailable)}", fontWeight = FontWeight.SemiBold)
                 Text("剩余 ${ui.daysRemaining} 天", color = TextMuted)
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(s.cardRadius.dp),
+            colors = CardDefaults.cardColors(containerColor = s.cardColor),
+            border = s.border
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("预算预警色阶", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "达到 ${budgetAlertSettings.warningPercent}% 后切换预警色，超过 100% 使用危险色。",
+                    color = TextMuted,
+                    fontSize = 13.sp
+                )
+                Text("预警阈值 ${budgetAlertSettings.warningPercent}%", color = budgetAccent, fontWeight = FontWeight.Bold)
+                Slider(
+                    value = budgetAlertSettings.warningPercent.toFloat(),
+                    onValueChange = {
+                        onBudgetAlertChange(it.toInt(), budgetAlertSettings.palette)
+                    },
+                    valueRange = 50f..100f
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        BudgetAlertPalette.Sunset,
+                        BudgetAlertPalette.Ocean,
+                        BudgetAlertPalette.Rose,
+                        BudgetAlertPalette.Plum
+                    ).chunked(2).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            row.forEach { palette ->
+                                val active = budgetAlertSettings.palette == palette
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            if (active) Color(palette.warningHex).copy(alpha = 0.16f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (active) Color(palette.warningHex) else MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .clickable { onBudgetAlertChange(budgetAlertSettings.warningPercent, palette) }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(Color(palette.normalHex))
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(Color(palette.warningHex))
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(Color(palette.dangerHex))
+                                        )
+                                    }
+                                    Text(
+                                        text = palette.label,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
             }
         }
 
@@ -1456,6 +1669,8 @@ fun AuthScreen(
     modifier: Modifier = Modifier,
     selectedTheme: AppThemePreset,
     authState: AuthUiState,
+    rememberPasswordEnabled: Boolean,
+    onRememberPasswordChange: (Boolean) -> Unit,
     onLogin: (email: String, password: String) -> Unit,
     onRegister: (nickname: String, email: String, code: String, password: String) -> Unit,
     onSendCode: (email: String) -> Unit
@@ -1472,8 +1687,10 @@ fun AuthScreen(
     val surface = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
 
     LaunchedEffect(Unit) {
-        loginEmail = AuthSessionStore.rememberedEmail()
-        loginPassword = AuthSessionStore.rememberedPassword()
+        if (rememberPasswordEnabled) {
+            loginEmail = AuthSessionStore.rememberedEmail()
+            loginPassword = AuthSessionStore.rememberedPassword()
+        }
     }
 
     Box(
@@ -1577,6 +1794,20 @@ fun AuthScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("记住密码", fontWeight = FontWeight.SemiBold)
+                                Text("下次打开应用时自动填充账号与密码", color = TextMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = rememberPasswordEnabled,
+                                onCheckedChange = { onRememberPasswordChange(it) }
+                            )
+                        }
                         Button(
                             onClick = { onLogin(loginEmail, loginPassword) },
                             enabled = !authState.loginSubmitting,

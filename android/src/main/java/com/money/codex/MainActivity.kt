@@ -1,6 +1,7 @@
 package com.money.codex
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -71,21 +72,38 @@ import com.money.codex.ui.theme.Income
 import com.money.codex.ui.theme.MoneyTheme
 
 class MainActivity : ComponentActivity() {
+    private var externalAction by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        externalAction = intent?.action
         enableEdgeToEdge()
         setContent {
             val vm: MainViewModel = viewModel()
             MoneyTheme(themePreset = vm.selectedTheme) {
-                MoneyApp(vm)
+                MoneyApp(
+                    vm = vm,
+                    externalAction = externalAction,
+                    onExternalActionConsumed = { externalAction = null }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        externalAction = intent.action
     }
 }
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
-private fun MoneyApp(vm: MainViewModel) {
+private fun MoneyApp(
+    vm: MainViewModel,
+    externalAction: String?,
+    onExternalActionConsumed: () -> Unit
+) {
     val snackbarHostState = remember { SnackbarHostState() }
     var snackbarTone by remember { mutableStateOf(MessageTone.Info) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -102,6 +120,13 @@ private fun MoneyApp(vm: MainViewModel) {
             snackbarTone = message.tone
             snackbarHostState.showSnackbar(message.text)
             vm.clearToast()
+        }
+    }
+
+    LaunchedEffect(externalAction, vm.authState.isAuthenticated) {
+        if (externalAction == ReminderScheduler.ACTION_QUICK_ADD && vm.authState.isAuthenticated) {
+            vm.openQuickAdd()
+            onExternalActionConsumed()
         }
     }
 
@@ -126,6 +151,8 @@ private fun MoneyApp(vm: MainViewModel) {
                     .fillMaxSize(),
                 selectedTheme = vm.selectedTheme,
                 authState = vm.authState,
+                rememberPasswordEnabled = vm.rememberPasswordEnabled,
+                onRememberPasswordChange = vm::updateRememberPasswordEnabled,
                 onLogin = vm::login,
                 onRegister = vm::register,
                 onSendCode = vm::sendRegisterCode
@@ -232,7 +259,8 @@ private fun MoneyApp(vm: MainViewModel) {
                     DashboardScreen(
                         ui = vm.dashboard,
                         uiStyle = vm.selectedUiStyle,
-                        currentUserName = vm.authState.currentUser?.nickname ?: "Yee"
+                        currentUserName = vm.authState.currentUser?.nickname ?: "Yee",
+                        budgetAlertSettings = vm.budgetAlertSettings
                     ) { vm.openEditRecord(it) }
                 }
 
@@ -285,12 +313,14 @@ private fun MoneyApp(vm: MainViewModel) {
                         selectedTheme = vm.selectedTheme,
                         currentUser = vm.authState.currentUser,
                         exactAlarmSupported = vm.reminderCapability.exactAlarmSupported,
-                        onUiStyleChange = { vm.setUiStyle(it) },
-                        onThemeChange = { vm.setTheme(it) },
-                        onSetBudget = { vm.setBudget(it) },
                         reminderEnabled = vm.reminderEnabled,
                         reminderHour = vm.reminderHour,
                         reminderMinute = vm.reminderMinute,
+                        budgetAlertSettings = vm.budgetAlertSettings,
+                        onUiStyleChange = { vm.setUiStyle(it) },
+                        onThemeChange = { vm.setTheme(it) },
+                        onSetBudget = { vm.setBudget(it) },
+                        onBudgetAlertChange = vm::updateBudgetAlertSettings,
                         onReminderEnabledChange = { enabled ->
                             if (
                                 enabled &&
