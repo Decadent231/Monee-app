@@ -435,6 +435,7 @@ class MainViewModel(
 
                 val (budgetData, dailyData) = repository.loadBudget(currentMonth)
                 budget = budgetUi(budgetData, dailyData.dailyAvailable, dailyData.daysRemaining)
+                refreshWidgetSnapshot()
             }.onFailure { handleFailure(it) }
             isLoading = false
         }
@@ -562,6 +563,7 @@ class MainViewModel(
                 val detail = buildRecordSuccessMessage(type, amount, categoryName, date, remark)
                 toastMessage = UiMessage(detail, MessageTone.Success)
                 addRecordDialogVisible = false
+                refreshWidgetSnapshot()
                 loadDashboard()
                 loadRecords()
                 loadStatistics()
@@ -578,6 +580,7 @@ class MainViewModel(
                     if (editingRecord?.id == id) {
                         editingRecord = null
                     }
+                    refreshWidgetSnapshot()
                     loadDashboard()
                     loadRecords(records.page)
                     loadStatistics()
@@ -614,6 +617,7 @@ class MainViewModel(
             }.onSuccess {
                 toastMessage = UiMessage("记录已更新", MessageTone.Success)
                 editingRecord = null
+                refreshWidgetSnapshot()
                 loadDashboard()
                 loadRecords(records.page)
                 loadStatistics()
@@ -754,6 +758,27 @@ class MainViewModel(
             daysRemaining = daysRemaining,
             usagePercent = percent.coerceAtLeast(0.0)
         )
+    }
+
+    private suspend fun refreshWidgetSnapshot() {
+        val today = todayString()
+        val todayExpense = repository.loadRecords(
+            page = 1,
+            size = 200,
+            startDate = today,
+            endDate = today,
+            type = "expense"
+        ).records.sumOf { it.amount }
+        val (_, dailyData) = repository.loadBudget(currentMonth)
+        val context = getApplication<Application>().applicationContext
+        WidgetSnapshotStore.save(
+            context,
+            WidgetSnapshot(
+                todayExpense = todayExpense,
+                dailyAvailable = dailyData.dailyAvailable
+            )
+        )
+        QuickAddWidgetProvider.refreshAll(context)
     }
 
     private fun buildRecordSuccessMessage(
