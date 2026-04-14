@@ -12,11 +12,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
@@ -286,7 +289,8 @@ private fun MoneyApp(
                         uiStyle = vm.selectedUiStyle,
                         onPeriodChange = { vm.changeStatisticsPeriod(it) },
                         onMonthChange = { vm.changeStatisticsMonth(it) },
-                        onYearChange = { vm.changeStatisticsYear(it) }
+                        onYearChange = { vm.changeStatisticsYear(it) },
+                        onCalendarDayClick = vm::openRecordsForDate
                     )
                 }
 
@@ -445,20 +449,73 @@ private fun AppSnackbarHost(
     tone: MessageTone
 ) {
     val background = when (tone) {
-        MessageTone.Success -> Income.copy(alpha = 0.92f)
-        MessageTone.Error -> Expense.copy(alpha = 0.92f)
-        MessageTone.Info -> Brand.copy(alpha = 0.92f)
+        MessageTone.Success -> Brush.horizontalGradient(listOf(Income.copy(alpha = 0.95f), Brand.copy(alpha = 0.92f)))
+        MessageTone.Error -> Brush.horizontalGradient(listOf(Expense.copy(alpha = 0.96f), Color(0xFF7F1D1D)))
+        MessageTone.Info -> Brush.horizontalGradient(listOf(Brand.copy(alpha = 0.94f), Color(0xFF4338CA)))
+    }
+    val badge = when (tone) {
+        MessageTone.Success -> "已入账"
+        MessageTone.Error -> "出错了"
+        MessageTone.Info -> "提示"
+    }
+    val accent = when (tone) {
+        MessageTone.Success -> Color(0xFFDCFCE7)
+        MessageTone.Error -> Color(0xFFFEE2E2)
+        MessageTone.Info -> Color(0xFFE0E7FF)
     }
     SnackbarHost(
         hostState = hostState,
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
     ) { data ->
         Snackbar(
-            snackbarData = data,
-            containerColor = background,
+            modifier = Modifier,
+            containerColor = Color.Transparent,
             contentColor = Color.White,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            actionColor = Color.White
-        )
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+            actionContentColor = Color.White
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                    .background(background)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .background(Color.White.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = when (tone) {
+                            MessageTone.Success -> "¥"
+                            MessageTone.Error -> "!"
+                            MessageTone.Info -> "i"
+                        },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        color = accent,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = data.visuals.message,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
     }
 }

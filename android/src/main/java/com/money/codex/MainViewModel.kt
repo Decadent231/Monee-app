@@ -486,6 +486,16 @@ class MainViewModel(
         loadRecords(1)
     }
 
+    fun openRecordsForDate(date: String) {
+        currentTab = AppTab.Records
+        recordFilters = recordFilters.copy(
+            startDate = date,
+            endDate = date
+        )
+        loadRecords(1)
+        toastMessage = UiMessage("已切换到$date 的记录", MessageTone.Info)
+    }
+
     fun loadStatistics() {
         if (!authState.isAuthenticated) return
         viewModelScope.launch {

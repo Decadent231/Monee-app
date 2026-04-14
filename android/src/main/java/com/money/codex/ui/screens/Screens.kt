@@ -697,7 +697,8 @@ fun StatisticsScreen(
     uiStyle: AppUiStyle,
     onPeriodChange: (String) -> Unit,
     onMonthChange: (String) -> Unit,
-    onYearChange: (Int) -> Unit
+    onYearChange: (Int) -> Unit,
+    onCalendarDayClick: (String) -> Unit
 ) {
     val s = uiStyleTokens(uiStyle)
     LazyColumn(
@@ -781,7 +782,8 @@ fun StatisticsScreen(
                 ExpenseCalendarCard(
                     month = ui.month,
                     calendarExpenses = ui.calendarExpenses,
-                    uiStyle = uiStyle
+                    uiStyle = uiStyle,
+                    onDayClick = onCalendarDayClick
                 )
             }
         }
@@ -793,7 +795,8 @@ fun StatisticsScreen(
 private fun ExpenseCalendarCard(
     month: String,
     calendarExpenses: List<CalendarExpenseDay>,
-    uiStyle: AppUiStyle
+    uiStyle: AppUiStyle,
+    onDayClick: (String) -> Unit
 ) {
     val s = uiStyleTokens(uiStyle)
     val currentMonth = runCatching { YearMonth.parse(month) }.getOrElse { YearMonth.now() }
@@ -860,6 +863,13 @@ private fun ExpenseCalendarCard(
                                         1.dp,
                                         MaterialTheme.colorScheme.outline.copy(alpha = if (expense != null) 0.18f else 0.08f),
                                         RoundedCornerShape(14.dp)
+                                    )
+                                    .then(
+                                        if (date != null) {
+                                            Modifier.clickable { onDayClick(date.toString()) }
+                                        } else {
+                                            Modifier
+                                        }
                                     )
                                     .padding(horizontal = 6.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
