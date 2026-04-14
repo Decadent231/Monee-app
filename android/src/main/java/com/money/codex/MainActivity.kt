@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -34,17 +35,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,6 +64,10 @@ import com.money.codex.ui.screens.RecordsScreen
 import com.money.codex.ui.screens.SettingsScreen
 import com.money.codex.ui.screens.StatisticsScreen
 import com.money.codex.ui.theme.AppBackground
+import com.money.codex.ui.theme.Brand
+import com.money.codex.ui.theme.BrandSurface
+import com.money.codex.ui.theme.Expense
+import com.money.codex.ui.theme.Income
 import com.money.codex.ui.theme.MoneyTheme
 
 class MainActivity : ComponentActivity() {
@@ -76,6 +87,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 private fun MoneyApp(vm: MainViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
+    var snackbarTone by remember { mutableStateOf(MessageTone.Info) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -86,28 +98,27 @@ private fun MoneyApp(vm: MainViewModel) {
     }
 
     LaunchedEffect(vm.toastMessage) {
-        vm.toastMessage?.let {
-            snackbarHostState.showSnackbar(it)
+        vm.toastMessage?.let { message ->
+            snackbarTone = message.tone
+            snackbarHostState.showSnackbar(message.text)
             vm.clearToast()
         }
     }
 
     if (vm.authState.authLoading) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(AppBackground),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("正在校验登录状态...", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        LaunchingScreen()
         return
     }
 
     if (!vm.authState.isAuthenticated) {
         Scaffold(
             containerColor = AppBackground,
-            snackbarHost = { SnackbarHost(snackbarHostState) }
+            snackbarHost = {
+                AppSnackbarHost(
+                    hostState = snackbarHostState,
+                    tone = snackbarTone
+                )
+            }
         ) { padding ->
             AuthScreen(
                 modifier = Modifier
@@ -132,6 +143,7 @@ private fun MoneyApp(vm: MainViewModel) {
             }
         )
     }
+
     vm.editingRecord?.let { record ->
         EditRecordDialog(
             record = record,
@@ -146,7 +158,12 @@ private fun MoneyApp(vm: MainViewModel) {
 
     Scaffold(
         containerColor = AppBackground,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            AppSnackbarHost(
+                hostState = snackbarHostState,
+                tone = snackbarTone
+            )
+        },
         bottomBar = {
             Surface(
                 color = Color.Transparent,
@@ -292,6 +309,8 @@ private fun MoneyApp(vm: MainViewModel) {
                             ReminderScheduler.exactAlarmSettingsIntent(context)?.let(context::startActivity)
                         },
                         onRefreshReminderCapability = { vm.refreshReminderCapability(context) },
+                        onUpdateProfile = vm::updateProfile,
+                        onChangePassword = vm::changePassword,
                         onLogout = vm::logout
                     )
                 }
@@ -302,5 +321,114 @@ private fun MoneyApp(vm: MainViewModel) {
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
+    }
+}
+
+@Composable
+private fun LaunchingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.surface,
+                        BrandSurface.copy(alpha = 0.96f)
+                    )
+                )
+            )
+            .padding(horizontal = 24.dp, vertical = 28.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .width(132.dp)
+                .height(132.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(36.dp))
+                .background(Brand.copy(alpha = 0.12f))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .width(160.dp)
+                .height(160.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(48.dp))
+                .background(Income.copy(alpha = 0.10f))
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxSize()
+                .padding(vertical = 48.dp),
+            color = Color.Transparent
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.68f))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                        androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
+                    )
+                    .padding(horizontal = 24.dp, vertical = 28.dp)
+            ) {
+                Column(
+                    modifier = Modifier.align(Alignment.CenterStart)
+                ) {
+                    Text(
+                        text = "Monee",
+                        color = Brand,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = "让每一笔记录，\n都更有秩序。",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "正在同步你的个人账本、预算与分类设置",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .width(72.dp)
+                        .height(4.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+                        .background(Brand.copy(alpha = 0.9f))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppSnackbarHost(
+    hostState: SnackbarHostState,
+    tone: MessageTone
+) {
+    val background = when (tone) {
+        MessageTone.Success -> Income.copy(alpha = 0.92f)
+        MessageTone.Error -> Expense.copy(alpha = 0.92f)
+        MessageTone.Info -> Brand.copy(alpha = 0.92f)
+    }
+    SnackbarHost(
+        hostState = hostState,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+    ) { data ->
+        Snackbar(
+            snackbarData = data,
+            containerColor = background,
+            contentColor = Color.White,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            actionColor = Color.White
+        )
     }
 }

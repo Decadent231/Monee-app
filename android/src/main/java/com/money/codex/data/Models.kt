@@ -111,6 +111,15 @@ data class LoginRequest(
     val password: String
 )
 
+data class UpdateProfileRequest(
+    val nickname: String
+)
+
+data class ChangePasswordRequest(
+    val oldPassword: String,
+    val newPassword: String
+)
+
 data class UserInfo(
     val id: Long,
     val email: String,

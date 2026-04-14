@@ -8,6 +8,8 @@ object AuthSessionStore {
     private const val KEY_USER_ID = "user_id"
     private const val KEY_EMAIL = "email"
     private const val KEY_NICKNAME = "nickname"
+    private const val KEY_REMEMBER_EMAIL = "remember_email"
+    private const val KEY_REMEMBER_PASSWORD = "remember_password"
 
     @Volatile
     private var initialized = false
@@ -48,10 +50,39 @@ object AuthSessionStore {
             .apply()
     }
 
+    fun saveRememberedCredentials(email: String, password: String) {
+        if (!initialized) {
+            return
+        }
+        prefs().edit()
+            .putString(KEY_REMEMBER_EMAIL, email)
+            .putString(KEY_REMEMBER_PASSWORD, password)
+            .apply()
+    }
+
+    fun rememberedEmail(): String {
+        if (!initialized) {
+            return ""
+        }
+        return prefs().getString(KEY_REMEMBER_EMAIL, "").orEmpty()
+    }
+
+    fun rememberedPassword(): String {
+        if (!initialized) {
+            return ""
+        }
+        return prefs().getString(KEY_REMEMBER_PASSWORD, "").orEmpty()
+    }
+
     fun clearSession() {
         if (!initialized) {
             return
         }
-        prefs().edit().clear().apply()
+        prefs().edit()
+            .remove(KEY_TOKEN)
+            .remove(KEY_USER_ID)
+            .remove(KEY_EMAIL)
+            .remove(KEY_NICKNAME)
+            .apply()
     }
 }

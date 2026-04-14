@@ -109,6 +109,12 @@ interface UserApiService {
 
     @GET("users/me")
     suspend fun currentUser(): ApiResponse<UserInfo>
+
+    @PUT("users/profile")
+    suspend fun updateProfile(@Body payload: UpdateProfileRequest): ApiResponse<UserInfo>
+
+    @PUT("users/password")
+    suspend fun changePassword(@Body payload: ChangePasswordRequest): ApiResponse<Void>
 }
 
 object ApiFactory {

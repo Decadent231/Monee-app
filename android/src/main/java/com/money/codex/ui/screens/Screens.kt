@@ -65,6 +65,7 @@ import com.money.codex.AuthUiState
 import com.money.codex.RecordFilters
 import com.money.codex.RecordsUi
 import com.money.codex.StatisticsUi
+import com.money.codex.data.AuthSessionStore
 import com.money.codex.data.Category
 import com.money.codex.data.CategoryStat
 import com.money.codex.data.RecordItem
@@ -83,8 +84,46 @@ import java.time.YearMonth
 import java.util.Locale
 
 private val moneyFmt = DecimalFormat("#,##0.00")
-private val expenseIconPresets = listOf("🍽️", "🚗", "🛒", "🎮", "📦", "📱", "🏠")
-private val incomeIconPresets = listOf("💰", "🎁", "📈", "💵", "🧧")
+private val expenseIconPresets = listOf("🍽️", "☕", "🛒", "🚕", "⛽", "🏠", "📱", "🎬", "🎮", "💊", "✈️", "🎓")
+private val incomeIconPresets = listOf("💰", "💵", "🧧", "🎁", "📈", "💼", "🏆", "💳")
+
+private data class CategoryTemplate(
+    val type: String,
+    val icon: String,
+    val name: String,
+    val description: String,
+    val sort: Int
+)
+
+private val categoryTemplates = listOf(
+    CategoryTemplate("expense", "🍽️", "餐饮", "日常吃饭、外卖、聚餐", 10),
+    CategoryTemplate("expense", "☕", "咖啡茶饮", "咖啡、奶茶、饮品", 12),
+    CategoryTemplate("expense", "🛒", "购物", "日用百货、网购消费", 20),
+    CategoryTemplate("expense", "🚕", "出行", "打车、公交、地铁", 30),
+    CategoryTemplate("expense", "⛽", "汽车", "加油、停车、保养", 32),
+    CategoryTemplate("expense", "🏠", "住房", "房租、水电、物业", 40),
+    CategoryTemplate("expense", "📱", "通讯", "话费、流量、宽带", 45),
+    CategoryTemplate("expense", "🎬", "娱乐", "电影、游戏、休闲", 50),
+    CategoryTemplate("expense", "💊", "医疗", "药品、门诊、体检", 60),
+    CategoryTemplate("income", "💼", "工资", "固定工资收入", 10),
+    CategoryTemplate("income", "💰", "奖金", "绩效、奖金、分红", 20),
+    CategoryTemplate("income", "📈", "投资", "理财、基金、股票收益", 30),
+    CategoryTemplate("income", "🎁", "礼金", "红包、礼物折现", 40),
+    CategoryTemplate("income", "🧧", "其他收入", "临时或额外收入", 50)
+)
+
+private val chartPalette = listOf(
+    Color(0xFF4F46E5),
+    Color(0xFFF97316),
+    Color(0xFFDC2626),
+    Color(0xFFEAB308),
+    Color(0xFF7C3AED),
+    Color(0xFF2563EB),
+    Color(0xFFDB2777),
+    Color(0xFFEA580C),
+    Color(0xFF9333EA),
+    Color(0xFF475569)
+)
 
 fun money(value: Double): String = "¥${moneyFmt.format(value)}"
 
@@ -240,7 +279,7 @@ fun DashboardScreen(
                                 textAlign = TextAlign.Center
                             )
                             Text(
-                                text = "每日可支配 ${money(ui.dailyAvailable)}",
+                                text = "每日可支配 ${money(ui.dailyAverageBudget)}",
                                 color = Color.White.copy(alpha = 0.66f),
                                 fontSize = 12.sp
                             )
@@ -319,7 +358,7 @@ fun DashboardScreen(
                                 fontSize = 12.sp
                             )
                             Text(
-                                text = "日均预算 ${money(ui.dailyAverageBudget)}",
+                                text = "日均预算 ${money(ui.dailyAvailable)}",
                                 color = Color.White.copy(alpha = 0.88f),
                                 fontSize = 12.sp
                             )
@@ -776,12 +815,18 @@ fun CategoriesScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SectionTitle("分类管理", uiStyle)
+            Text(
+                text = "分类管理",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             Button(
                 onClick = { showAdd = true },
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Brand)
-            ) { Text("新增") }
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Brand),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+            ) { Text("新增分类") }
         }
         if (sorted.isEmpty()) {
             EmptyTip("暂无分类")
@@ -848,6 +893,7 @@ private fun CategoryEditorDialog(
     var sort by remember(initial?.id) { mutableStateOf((initial?.sort ?: 99).toString()) }
 
     val presets = if (type == "expense") expenseIconPresets else incomeIconPresets
+    val templates = categoryTemplates.filter { it.type == type }
     LaunchedEffect(type) {
         if (!presets.contains(icon)) {
             icon = presets.firstOrNull() ?: icon
@@ -873,6 +919,29 @@ private fun CategoryEditorDialog(
                                 contentColor = if (type == value) Color.White else Color(0xFF334155)
                             )
                         ) { Text(label) }
+                    }
+                }
+
+                Text("快捷模板", color = TextMuted, fontSize = 13.sp)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    maxItemsInEachRow = 3
+                ) {
+                    templates.forEach { template ->
+                        Text(
+                            text = "${template.icon} ${template.name}",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .background(BrandSurface, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    icon = template.icon
+                                    name = template.name
+                                    description = template.description
+                                    sort = template.sort.toString()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
                     }
                 }
 
@@ -954,10 +1023,14 @@ fun SettingsScreen(
     onReminderTimeChange: (Int, Int) -> Unit,
     onOpenExactAlarmSettings: () -> Unit,
     onRefreshReminderCapability: () -> Unit,
+    onUpdateProfile: (String) -> Unit,
+    onChangePassword: (String, String) -> Unit,
     onLogout: () -> Unit
 ) {
     val s = uiStyleTokens(selectedUiStyle)
     var showDialog by remember { mutableStateOf(false) }
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     if (showDialog) {
@@ -966,6 +1039,25 @@ fun SettingsScreen(
             onSave = {
                 onSetBudget(it)
                 showDialog = false
+            }
+        )
+    }
+    if (showProfileDialog) {
+        ProfileEditorDialog(
+            currentNickname = currentUser?.nickname.orEmpty(),
+            onDismiss = { showProfileDialog = false },
+            onSave = {
+                onUpdateProfile(it)
+                showProfileDialog = false
+            }
+        )
+    }
+    if (showPasswordDialog) {
+        ChangePasswordDialog(
+            onDismiss = { showPasswordDialog = false },
+            onSave = { oldPassword, newPassword ->
+                onChangePassword(oldPassword, newPassword)
+                showPasswordDialog = false
             }
         )
     }
@@ -989,10 +1081,27 @@ fun SettingsScreen(
                     Text("当前账号", fontWeight = FontWeight.SemiBold)
                     Text(user.nickname, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                     Text(user.email, color = TextMuted)
-                    OutlinedButton(
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { showProfileDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("修改昵称")
+                        }
+                        OutlinedButton(
+                            onClick = { showPasswordDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("修改密码")
+                        }
+                    }
+                    Button(
                         onClick = onLogout,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Expense.copy(alpha = 0.9f))
                     ) {
                         Text("退出登录")
                     }
@@ -1032,28 +1141,41 @@ fun SettingsScreen(
         ) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("界面套装", fontWeight = FontWeight.SemiBold)
-                Text("不改功能，只切换视觉编排", color = TextMuted, fontSize = 13.sp)
-                val styles = listOf(AppUiStyle.Pulse, AppUiStyle.Neo, AppUiStyle.Aurora, AppUiStyle.Mono)
+                Text("会明显改变卡片圆角、边框、留白和整体质感", color = TextMuted, fontSize = 13.sp)
+                val styles = listOf(
+                    AppUiStyle.Pulse to "柔和圆角 · 轻盈层次",
+                    AppUiStyle.Neo to "利落边框 · 信息清晰",
+                    AppUiStyle.Aurora to "玻璃流光 · 更偏氛围",
+                    AppUiStyle.Mono to "杂志感 · 黑白对比"
+                )
                 styles.chunked(2).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        row.forEach { style ->
+                        row.forEach { (style, desc) ->
                             val active = selectedUiStyle == style
-                            Text(
-                                text = style.label,
-                                color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                            Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(
-                                        if (active) s.accentColor else BrandSurface,
-                                        RoundedCornerShape(s.accentRadius.dp)
+                                    .clip(RoundedCornerShape((s.accentRadius + 2).dp))
+                                    .background(if (active) Brand.copy(alpha = 0.16f) else BrandSurface)
+                                    .border(
+                                        1.dp,
+                                        if (active) Brand.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                                        RoundedCornerShape((s.accentRadius + 2).dp)
                                     )
                                     .clickable { onUiStyleChange(style) }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                textAlign = TextAlign.Center
-                            )
+                                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = style.label,
+                                    color = if (active) Brand else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(desc, color = TextMuted, fontSize = 12.sp)
+                            }
                         }
                         if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
@@ -1140,7 +1262,7 @@ fun SettingsScreen(
         ) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("主题外观", fontWeight = FontWeight.SemiBold)
-                Text("选择你喜欢的主题风格", color = TextMuted, fontSize = 13.sp)
+                Text("每套主题会同步改变品牌主色、背景和强调色", color = TextMuted, fontSize = 13.sp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -1167,35 +1289,166 @@ fun SettingsScreen(
                     ) {
                         val left = lightThemes[index]
                         val leftActive = selectedTheme == left
-                        Text(
-                            text = left.label,
-                            color = if (leftActive) Color.White else MaterialTheme.colorScheme.onSurface,
+                        Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(if (leftActive) Brand else BrandSurface, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (leftActive) Brand.copy(alpha = 0.16f) else BrandSurface)
+                                .border(
+                                    1.dp,
+                                    if (leftActive) Brand.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable { onThemeChange(left) }
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            textAlign = TextAlign.Center
-                        )
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = left.label,
+                                color = if (leftActive) Brand else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Brand, RoundedCornerShape(10.dp))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Income, RoundedCornerShape(10.dp))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Expense, RoundedCornerShape(10.dp))
+                                )
+                            }
+                        }
 
                         val right = darkThemes[index]
                         val rightActive = selectedTheme == right
-                        Text(
-                            text = right.label,
-                            color = if (rightActive) Color.White else MaterialTheme.colorScheme.onSurface,
+                        Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(if (rightActive) Brand else BrandSurface, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (rightActive) Brand.copy(alpha = 0.16f) else BrandSurface)
+                                .border(
+                                    1.dp,
+                                    if (rightActive) Brand.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable { onThemeChange(right) }
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            textAlign = TextAlign.Center
-                        )
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = right.label,
+                                color = if (rightActive) Brand else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Brand, RoundedCornerShape(10.dp))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Income, RoundedCornerShape(10.dp))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Expense, RoundedCornerShape(10.dp))
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
         Spacer(Modifier.height(20.dp))
     }
+}
+
+@Composable
+private fun ProfileEditorDialog(
+    currentNickname: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var nickname by remember(currentNickname) { mutableStateOf(currentNickname) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("修改昵称") },
+        text = {
+            OutlinedTextField(
+                value = nickname,
+                onValueChange = { nickname = it },
+                label = { Text("新的昵称") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(nickname.trim()) }) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var oldPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("修改密码") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = oldPassword,
+                    onValueChange = { oldPassword = it },
+                    label = { Text("旧密码") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = { Text("新密码") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(oldPassword, newPassword) }) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1217,6 +1470,11 @@ fun AuthScreen(
 
     val accent = Brand
     val surface = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+
+    LaunchedEffect(Unit) {
+        loginEmail = AuthSessionStore.rememberedEmail()
+        loginPassword = AuthSessionStore.rememberedPassword()
+    }
 
     Box(
         modifier = modifier
@@ -1493,10 +1751,7 @@ private fun PieChartCard(
                 EmptyTip(emptyTip)
             } else {
                 val total = validStats.sumOf { it.amount }
-                val chartColors = listOf(
-                    Color(0xFF0F7E76), Color(0xFF19A59A), Color(0xFF4BC7B8), Color(0xFF7ADBCF),
-                    Color(0xFFB4EDE3), Color(0xFF4F46E5), Color(0xFFEA580C), Color(0xFFDC2626)
-                )
+                val chartColors = chartPalette
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),

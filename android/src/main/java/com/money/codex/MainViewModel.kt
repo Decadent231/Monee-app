@@ -37,9 +37,20 @@ enum class AppTab(val title: String) {
 enum class AppUiStyle(val label: String) {
     Pulse("灵动卡片"),
     Neo("极简线框"),
-    Aurora("玻璃流光"),
-    Mono("黑白杂志")
+    Aurora("流光玻璃"),
+    Mono("杂志黑白")
 }
+
+enum class MessageTone {
+    Success,
+    Error,
+    Info
+}
+
+data class UiMessage(
+    val text: String,
+    val tone: MessageTone = MessageTone.Info
+)
 
 data class DashboardUi(
     val stats: MonthlyStats = MonthlyStats(),
@@ -155,7 +166,7 @@ class MainViewModel(
     var addRecordDialogVisible by mutableStateOf(false)
         private set
 
-    var toastMessage by mutableStateOf<String?>(null)
+    var toastMessage by mutableStateOf<UiMessage?>(null)
         private set
 
     var editingRecord by mutableStateOf<RecordItem?>(null)
@@ -230,10 +241,14 @@ class MainViewModel(
             reminderCapability = ReminderCapabilityUi(
                 exactAlarmSupported = ReminderScheduler.canScheduleExactAlarms(context)
             )
-            toastMessage = if (scheduled) "提醒已开启" else "系统未允许精确提醒，请在设置中授权"
+            toastMessage = if (scheduled) {
+                UiMessage("定时提醒已开启", MessageTone.Success)
+            } else {
+                UiMessage("系统未授予精确提醒权限，请先完成授权", MessageTone.Error)
+            }
         } else {
             ReminderScheduler.cancelDailyReminder(context)
-            toastMessage = "提醒已关闭"
+            toastMessage = UiMessage("定时提醒已关闭", MessageTone.Info)
         }
     }
 
@@ -246,7 +261,11 @@ class MainViewModel(
             reminderCapability = ReminderCapabilityUi(
                 exactAlarmSupported = ReminderScheduler.canScheduleExactAlarms(context)
             )
-            toastMessage = if (scheduled) "提醒时间已更新" else "系统未允许精确提醒，请在设置中授权"
+            toastMessage = if (scheduled) {
+                UiMessage("提醒时间已更新", MessageTone.Success)
+            } else {
+                UiMessage("系统未授予精确提醒权限，请先完成授权", MessageTone.Error)
+            }
         }
     }
 
@@ -272,7 +291,7 @@ class MainViewModel(
         viewModelScope.launch {
             authState = authState.copy(sendingCode = true)
             runCatching { repository.sendRegisterCode(email) }
-                .onSuccess { toastMessage = "验证码已发送，请检查邮箱" }
+                .onSuccess { toastMessage = UiMessage("验证码已发送，请检查邮箱", MessageTone.Success) }
                 .onFailure { handleFailure(it) }
             authState = authState.copy(sendingCode = false)
         }
@@ -282,7 +301,7 @@ class MainViewModel(
         viewModelScope.launch {
             authState = authState.copy(registerSubmitting = true)
             runCatching { repository.register(nickname, email, code, password) }
-                .onSuccess { toastMessage = "注册成功，请登录" }
+                .onSuccess { toastMessage = UiMessage("注册成功，请登录", MessageTone.Success) }
                 .onFailure { handleFailure(it) }
             authState = authState.copy(registerSubmitting = false)
         }
@@ -301,7 +320,7 @@ class MainViewModel(
                     authLoading = false,
                     loginSubmitting = false
                 )
-                toastMessage = "登录成功"
+                toastMessage = UiMessage("登录成功", MessageTone.Success)
                 refreshAll()
             }.onFailure {
                 authState = authState.copy(loginSubmitting = false)
@@ -321,13 +340,11 @@ class MainViewModel(
         addRecordDialogVisible = false
         editingRecord = null
         currentTab = AppTab.Dashboard
-        toastMessage = "已退出登录"
+        toastMessage = UiMessage("已退出登录", MessageTone.Info)
     }
 
     fun refreshAll() {
-        if (!authState.isAuthenticated) {
-            return
-        }
+        if (!authState.isAuthenticated) return
         viewModelScope.launch {
             isLoading = true
             runCatching {
@@ -336,12 +353,11 @@ class MainViewModel(
                 val dashboardData = repository.loadDashboard(currentMonth)
                 val percent = if (dashboardData.budget.budget <= 0.0) 0.0
                 else (dashboardData.budget.spent / dashboardData.budget.budget) * 100
-                val daysInMonth = runCatching { YearMonth.parse(currentMonth).lengthOfMonth() }.getOrDefault(30)
                 dashboard = DashboardUi(
                     stats = dashboardData.stats,
                     budgetRemaining = dashboardData.budget.remaining,
                     budgetPercent = percent.coerceIn(0.0, 100.0),
-                    dailyAverageBudget = if (daysInMonth > 0) dashboardData.dailyBudget.dailyAvailable else 0.0,
+                    dailyAverageBudget = dashboardData.dailyBudget.dailyAvailable,
                     dailyAvailable = dashboardData.dailyBudget.dailyAvailable,
                     daysRemaining = dashboardData.dailyBudget.daysRemaining,
                     recentRecords = dashboardData.records,
@@ -387,12 +403,11 @@ class MainViewModel(
             runCatching {
                 val data = repository.loadDashboard(currentMonth)
                 val percent = if (data.budget.budget <= 0.0) 0.0 else (data.budget.spent / data.budget.budget) * 100
-                val daysInMonth = runCatching { YearMonth.parse(currentMonth).lengthOfMonth() }.getOrDefault(30)
                 dashboard = DashboardUi(
                     stats = data.stats,
                     budgetRemaining = data.budget.remaining,
                     budgetPercent = percent.coerceIn(0.0, 100.0),
-                    dailyAverageBudget = if (daysInMonth > 0) data.budget.budget / daysInMonth else 0.0,
+                    dailyAverageBudget = data.dailyBudget.dailyAvailable,
                     dailyAvailable = data.dailyBudget.dailyAvailable,
                     daysRemaining = data.dailyBudget.daysRemaining,
                     recentRecords = data.records,
@@ -495,7 +510,7 @@ class MainViewModel(
     ) {
         viewModelScope.launch {
             if (amount <= 0.0 || categoryId <= 0) {
-                toastMessage = "请先填写正确的金额与分类"
+                toastMessage = UiMessage("请先填写正确的金额与分类", MessageTone.Error)
                 return@launch
             }
             runCatching {
@@ -509,7 +524,7 @@ class MainViewModel(
                     )
                 )
             }.onSuccess {
-                toastMessage = "记录添加成功"
+                toastMessage = UiMessage("记录已添加到你的账本", MessageTone.Success)
                 addRecordDialogVisible = false
                 loadDashboard()
                 loadRecords()
@@ -523,7 +538,7 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching { repository.deleteRecord(id) }
                 .onSuccess {
-                    toastMessage = "记录已删除"
+                    toastMessage = UiMessage("记录已删除", MessageTone.Success)
                     if (editingRecord?.id == id) {
                         editingRecord = null
                     }
@@ -546,7 +561,7 @@ class MainViewModel(
     ) {
         viewModelScope.launch {
             if (amount <= 0.0 || categoryId <= 0) {
-                toastMessage = "请先填写正确的金额与分类"
+                toastMessage = UiMessage("请先填写正确的金额与分类", MessageTone.Error)
                 return@launch
             }
             runCatching {
@@ -561,7 +576,7 @@ class MainViewModel(
                     )
                 )
             }.onSuccess {
-                toastMessage = "记录更新成功"
+                toastMessage = UiMessage("记录已更新", MessageTone.Success)
                 editingRecord = null
                 loadDashboard()
                 loadRecords(records.page)
@@ -575,7 +590,7 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching { repository.setBudget(amount, currentMonth) }
                 .onSuccess {
-                    toastMessage = "预算设置成功"
+                    toastMessage = UiMessage("预算设置成功", MessageTone.Success)
                     loadDashboard()
                     loadBudget()
                 }
@@ -594,7 +609,7 @@ class MainViewModel(
             runCatching {
                 repository.addCategory(CategoryPayload(type, icon, name, description, sort))
             }.onSuccess {
-                toastMessage = "分类添加成功"
+                toastMessage = UiMessage("分类添加成功", MessageTone.Success)
                 refreshAll()
             }.onFailure { handleFailure(it) }
         }
@@ -612,7 +627,7 @@ class MainViewModel(
             runCatching {
                 repository.updateCategory(id, CategoryPayload(type, icon, name, description, sort))
             }.onSuccess {
-                toastMessage = "分类更新成功"
+                toastMessage = UiMessage("分类更新成功", MessageTone.Success)
                 refreshAll()
             }.onFailure { handleFailure(it) }
         }
@@ -622,8 +637,37 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching { repository.deleteCategory(id) }
                 .onSuccess {
-                    toastMessage = "分类已删除"
+                    toastMessage = UiMessage("分类已删除", MessageTone.Success)
                     refreshAll()
+                }
+                .onFailure { handleFailure(it) }
+        }
+    }
+
+    fun updateProfile(nickname: String) {
+        viewModelScope.launch {
+            if (nickname.isBlank()) {
+                toastMessage = UiMessage("昵称不能为空", MessageTone.Error)
+                return@launch
+            }
+            runCatching { repository.updateProfile(nickname) }
+                .onSuccess { user ->
+                    authState = authState.copy(currentUser = user, isAuthenticated = true)
+                    toastMessage = UiMessage("昵称已更新", MessageTone.Success)
+                }
+                .onFailure { handleFailure(it) }
+        }
+    }
+
+    fun changePassword(oldPassword: String, newPassword: String) {
+        viewModelScope.launch {
+            if (oldPassword.isBlank() || newPassword.isBlank()) {
+                toastMessage = UiMessage("请完整填写旧密码和新密码", MessageTone.Error)
+                return@launch
+            }
+            runCatching { repository.changePassword(oldPassword, newPassword) }
+                .onSuccess {
+                    toastMessage = UiMessage("密码修改成功，请牢记新密码", MessageTone.Success)
                 }
                 .onFailure { handleFailure(it) }
         }
@@ -634,10 +678,10 @@ class MainViewModel(
             repository.logout()
             authState = AuthUiState(authLoading = false)
             fallback?.invoke()
-            toastMessage = throwable.message
+            toastMessage = UiMessage(throwable.message ?: "登录状态已失效，请重新登录", MessageTone.Error)
             return
         }
         fallback?.invoke()
-        toastMessage = throwable.message ?: "操作失败"
+        toastMessage = UiMessage(throwable.message ?: "操作失败", MessageTone.Error)
     }
 }

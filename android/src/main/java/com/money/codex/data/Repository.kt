@@ -36,6 +36,7 @@ class MoneyRepository(
                     IllegalStateException("请求失败(${t.code()})")
                 }
             }
+
             is IOException -> IllegalStateException("网络连接失败，请检查服务器或网络")
             else -> t
         }
@@ -72,6 +73,7 @@ class MoneyRepository(
             val data = unwrap(userApi.login(LoginRequest(email, password)))
                 ?: throw IllegalStateException("登录结果为空")
             AuthSessionStore.saveSession(data.token, data.userInfo)
+            AuthSessionStore.saveRememberedCredentials(email.trim(), password)
             data.userInfo
         }
     }
@@ -82,6 +84,22 @@ class MoneyRepository(
                 ?: throw IllegalStateException("用户信息为空")
             AuthSessionStore.saveSession(AuthSessionStore.token.orEmpty(), data)
             data
+        }
+    }
+
+    suspend fun updateProfile(nickname: String): UserInfo {
+        return callApi {
+            val data = unwrap(userAuthedApi.updateProfile(UpdateProfileRequest(nickname.trim())))
+                ?: throw IllegalStateException("更新后的用户信息为空")
+            AuthSessionStore.saveSession(AuthSessionStore.token.orEmpty(), data)
+            data
+        }
+    }
+
+    suspend fun changePassword(oldPassword: String, newPassword: String) {
+        callApi {
+            unwrap(userAuthedApi.changePassword(ChangePasswordRequest(oldPassword, newPassword)))
+            Unit
         }
     }
 
